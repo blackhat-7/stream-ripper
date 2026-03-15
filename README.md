@@ -2,13 +2,30 @@
 
 Finds live matches and plays the best stream in mpv. Monitors all sources in the background and auto-switches if the current one dies.
 
-## Setup
+## Install
 
+**Mac / Linux** — paste into Terminal:
 ```bash
-brew install mpv
-brew install --cask google-chrome
-brew install yt-dlp streamlink  # optional fallbacks
-uv sync
+curl -fsSL https://raw.githubusercontent.com/blackhat-7/stream-ripper/main/install.sh | bash
+```
+
+**Windows** — paste into PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/blackhat-7/stream-ripper/main/install.ps1 | iex
+```
+
+The installer handles everything: mpv, Chrome, Python, dependencies, and adds a `streamer` command to your PATH.
+
+## Uninstall
+
+**Mac / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/blackhat-7/stream-ripper/main/uninstall.sh | bash
+```
+
+**Windows:**
+```powershell
+irm https://raw.githubusercontent.com/blackhat-7/stream-ripper/main/uninstall.ps1 | iex
 ```
 
 ## Usage
