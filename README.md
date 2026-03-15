@@ -1,4 +1,4 @@
-# our-streamer
+# stream-ripper
 
 Finds live matches and plays the best stream in mpv. Monitors all sources in the background and auto-switches if the current one dies.
 
