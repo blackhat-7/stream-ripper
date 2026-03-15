@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import threading
@@ -37,6 +38,8 @@ def fetch_matches(query: str) -> list[LiveMatch]:
 def load_candidates(match: LiveMatch) -> list[StreamCandidate]:
     if match.source_site == "streamed.pk":
         return _load_streamed_pk(match)
+    if match.source_site.startswith("sportsurge"):
+        return _load_sportsurge(match)
     url = match.raw.get("url", match.id)
     return [StreamCandidate(label=match.source_site, embed_url=str(url))]
 
@@ -105,6 +108,46 @@ def _fetch_sportsurge(query: str) -> list[LiveMatch]:
         except Exception as exc:
             log.debug(f"sportsurge {base}: {exc}")
     return []
+
+
+def _load_sportsurge(match: LiveMatch) -> list[StreamCandidate]:
+    watch_url = str(match.raw.get("url", match.id))
+    try:
+        resp = http_get(watch_url)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+
+        # Next.js embeds all page data in <script id="__NEXT_DATA__">
+        script = soup.find("script", id="__NEXT_DATA__")
+        if script and script.string:
+            data = json.loads(script.string)
+            props = data.get("props", {}).get("pageProps", {})
+            # Dig through common key names for stream link arrays
+            streams = (props.get("streams")
+                       or props.get("streamLinks")
+                       or props.get("links")
+                       or props.get("event", {}).get("streams")
+                       or [])
+            candidates = []
+            for i, s in enumerate(streams if isinstance(streams, list) else []):
+                url = (s.get("url") or s.get("link") or s.get("embedUrl")
+                       or s.get("embed") or s.get("src") or "")
+                if not url:
+                    continue
+                label = (s.get("channel") or s.get("streamer")
+                         or s.get("name") or f"stream{i+1}")
+                candidates.append(StreamCandidate(
+                    label=f"{match.source_site} · {label}", embed_url=url))
+            if candidates:
+                log.info(f"sportsurge: found {len(candidates)} stream(s) via __NEXT_DATA__")
+                return candidates
+
+            log.info(f"sportsurge __NEXT_DATA__ props keys: {list(props.keys())}")
+    except Exception as exc:
+        log.debug(f"sportsurge _load: {exc}")
+
+    # Fallback: let playwright handle it (clicks the Action button in the Stream Links table)
+    return [StreamCandidate(label=match.source_site, embed_url=watch_url)]
 
 
 def _load_streamed_pk(match: LiveMatch) -> list[StreamCandidate]:

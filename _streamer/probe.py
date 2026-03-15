@@ -13,11 +13,12 @@ from _streamer.settings import FAIL_LIMIT, HEADERS, MAX_RESOLVES, REQ_TIMEOUT
 log = logging.getLogger(__name__)
 
 
-def probe(c: StreamCandidate, resolve_if_dead: bool = True) -> bool:
+def probe(c: StreamCandidate, resolve_if_dead: bool = True, no_browser: bool = False) -> bool:
     """Health-check one candidate. Updates c in-place.
 
     resolve_if_dead=False skips Playwright/yt-dlp re-resolution — use during
     background checks so Chrome never opens while mpv is playing.
+    no_browser=True allows resolution but skips playwright/Chrome entirely.
     """
     if not c.resolved:
         if not resolve_if_dead:
@@ -26,11 +27,15 @@ def probe(c: StreamCandidate, resolve_if_dead: bool = True) -> bool:
             if c.resolve_attempts >= MAX_RESOLVES:
                 return False
             c.resolve_attempts += 1
-        url = resolve(c)
+        url = resolve(c, no_browser=no_browser)
         if not url:
             with c._lock:
-                c.alive = False
-                c.failures += 1
+                if no_browser:
+                    # Skipped because browser was required — don't count as a real attempt
+                    c.resolve_attempts -= 1
+                else:
+                    c.alive = False
+                    c.failures += 1
             return False
         with c._lock:
             c.resolved = url
@@ -77,8 +82,9 @@ def probe(c: StreamCandidate, resolve_if_dead: bool = True) -> bool:
         return False
 
 
-def probe_all(candidates: list[StreamCandidate], resolve_if_dead: bool = True) -> None:
-    threads = [threading.Thread(target=probe, args=(c, resolve_if_dead), daemon=True)
+def probe_all(candidates: list[StreamCandidate], resolve_if_dead: bool = True,
+              no_browser: bool = False) -> None:
+    threads = [threading.Thread(target=probe, args=(c, resolve_if_dead, no_browser), daemon=True)
                for c in candidates]
     for t in threads:
         t.start()

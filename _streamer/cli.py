@@ -6,8 +6,8 @@ import time
 
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.player import MpvController
-from _streamer.probe import probe, probe_all
-from _streamer.settings import CHECK_EVERY, SWITCH_MARGIN
+from _streamer.probe import probe_all
+from _streamer.settings import CHECK_EVERY, PROBE_BATCH, SWITCH_MARGIN
 from _streamer.sources import discover_matches, load_candidates
 
 logging.basicConfig(
@@ -22,7 +22,12 @@ def print_status(candidates: list[StreamCandidate], current: StreamCandidate | N
     print("\n┌─ Streams " + "─" * 50)
     for c in candidates:
         playing = "▶" if current and c.label == current.label else " "
-        status  = f"✓ {c.latency_ms}ms" if c.alive else "✗ dead"
+        if c.resolve_attempts == 0 and c.failures == 0 and not c.resolved:
+            status = "… pending"
+        elif c.alive:
+            status = f"✓ {c.latency_ms}ms"
+        else:
+            status = "✗ dead"
         viewers = f"  ({c.viewers}v)" if c.viewers else ""
         print(f"│ {playing} {c.label:<44} {status}{viewers}")
     print("└" + "─" * 60 + "\n")
@@ -69,21 +74,19 @@ def main() -> None:
     if not candidates:
         sys.exit("No stream sources found.")
 
-    log.info(f"Found {len(candidates)} source(s). Resolving…")
-    mpv     = MpvController()
-    current: StreamCandidate | None = None
+    log.info(f"Found {len(candidates)} source(s). Resolving in batches of {PROBE_BATCH}…")
+    for i in range(0, len(candidates), PROBE_BATCH):
+        probe_all(candidates[i:i + PROBE_BATCH])
 
-    for c in candidates:
-        probe(c)
-        if c.alive:
-            current = c
-            mpv.launch(c.resolved, title=match.title, referrer=c.embed_url)
-            mpv.osd(f"▶ {c.label}  ({c.latency_ms}ms)")
-            log.info(f"Playing: {c.label}")
-            break
-
-    if not current:
+    alive = [c for c in candidates if c.alive]
+    if not alive:
         sys.exit("No working streams. Try a different match.")
+
+    mpv     = MpvController()
+    current = max(alive, key=lambda c: c.score())
+    mpv.launch(current.resolved, title=match.title, referrer=current.embed_url)
+    mpv.osd(f"▶ {current.label}  ({current.latency_ms}ms)")
+    log.info(f"Playing: {current.label}")
 
     print_status(candidates, current)
 

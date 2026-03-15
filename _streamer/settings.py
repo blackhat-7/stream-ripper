@@ -1,3 +1,4 @@
+PROBE_BATCH     = 3     # probe this many candidates before starting playback; rest probe in background
 CHECK_EVERY     = 20    # seconds between background health checks
 FAIL_LIMIT      = 2     # consecutive failures before forcing re-resolve
 MAX_RESOLVES    = 3     # give up after this many re-resolve attempts
