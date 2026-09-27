@@ -6,7 +6,6 @@
 #   "m3u8>=3.0.0",
 #   "beautifulsoup4>=4.12.0",
 #   "lxml>=5.0.0",
-#   "yt-dlp>=2024.1.0",
 #   "curl-cffi>=0.7.0",
 #   "playwright>=1.40.0",
 # ]

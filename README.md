@@ -35,13 +35,22 @@ python -m _streamer.tui                # pick from all live matches
 python -m _streamer.tui "liverpool"    # filter by name
 ```
 
-**Keys**
+Two screens: **Matches** (live matches grouped by league, with how many sites carry each) and **Watching** (the stream now playing plus every candidate stream with its status and latency). The bottom bar always shows the keys that work right now; press `?` for all of them.
+
+**Keys** (vim-style; arrow keys also work)
 
 | key | action |
 |-----|--------|
-| `↑ ↓` / `enter` | navigate & select match |
-| `l` | toggle log pane |
-| `r` | force re-probe all streams |
+| `j` `k` / `↑` `↓` | move down / up (counts work: `5j`) |
+| `gg` `G` | top / bottom |
+| `ctrl+d` `ctrl+u` / `ctrl+f` `ctrl+b` | half page / full page |
+| `enter` / `l` | watch match · play selected stream |
+| `/` | search matches (`enter` keeps the filter, `esc` clears it) |
+| `n` | skip to the next best stream (Watching) |
+| `r` | refresh matches · re-probe all streams |
+| `h` / `esc` | back to matches |
+| `L` / `ctrl+l` | toggle the log pane |
+| `?` | help |
 | `q` | quit |
 
 ## Debug / headless
@@ -51,10 +60,12 @@ python -m _streamer.cli                # plain-text CLI, no TUI
 python -m _streamer.cli --list         # list matches and exit
 ```
 
-## Adding a new sport
+## Adding a new site
 
-1. Create `_streamer/sources/<sport>.py` with `SPORT`, `fetch_matches(query)`, and `load_candidates(match)`
-2. Add it to `_SOURCES` in `_streamer/sources/__init__.py`
+1. Create `_streamer/sources/<site>.py` with `NAME`, `fetch_matches()`, and `load_candidates(match)`
+2. Add it to `_SITES` in `_streamer/sources/__init__.py`
+
+The same match found on several sites is merged, so every site's streams become fallbacks.
 
 ## Settings
 
