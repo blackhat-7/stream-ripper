@@ -129,6 +129,9 @@ step "Creating launcher"
 mkdir -p "$BIN_DIR"
 cat > "$BIN" <<EOF
 #!/usr/bin/env bash
+if [[ " \$* " == *" --web "* ]]; then
+  exec uv run --project "$INSTALL_DIR" python -m _streamer.web
+fi
 exec uv run --project "$INSTALL_DIR" python -m _streamer.tui "\$@"
 EOF
 chmod +x "$BIN"

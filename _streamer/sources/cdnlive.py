@@ -21,5 +21,6 @@ def fetch_matches() -> list[LiveMatch]:
 
 def load_candidates(match: LiveMatch) -> list[StreamCandidate]:
     return [StreamCandidate(label=c["channel_name"] + (" · HD" if " HD" in c["channel_name"] else ""),
-                            embed_url=c["url"], site=NAME, viewers=c.get("viewers", 0))
+                            embed_url=c["url"], site=NAME, viewers=c.get("viewers", 0),
+                            country=(c.get("channel_code") or "").upper())
             for c in match.raw["channels"] if c.get("url")]

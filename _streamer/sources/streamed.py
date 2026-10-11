@@ -40,9 +40,12 @@ def load_candidates(match: LiveMatch) -> list[StreamCandidate]:
     for s in found:
         if not s.get("embedUrl"):
             continue
-        lang = s.get("language", "")
-        lang_tag = f" · {lang}" if lang and lang.lower() != "english" else ""
-        label = f"{s.get('source', '?')} #{s.get('streamNo', '?')} · {'HD' if s.get('hd') else 'SD'}{lang_tag}"
+        # "language" is often "English - Sky Sports Football": language, then channel
+        lang, _, channel = (s.get("language") or "").partition(" - ")
+        lang = lang.strip().title()
+        lang_tag = f" · {lang}" if lang and lang != "English" else ""
+        name = channel.strip() or s.get("source", "?")
+        label = f"{name} #{s.get('streamNo', '?')} · {'HD' if s.get('hd') else 'SD'}{lang_tag}"
         out.append(StreamCandidate(label=label, embed_url=s["embedUrl"], site=NAME,
-                                   viewers=s.get("viewers", 0)))
+                                   viewers=s.get("viewers", 0), language=lang))
     return sorted(out, key=lambda c: c.viewers, reverse=True)

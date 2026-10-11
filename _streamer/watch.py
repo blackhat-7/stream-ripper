@@ -1,6 +1,6 @@
 """Keeps one match playing: probes streams, plays the best, fails over fast.
 
-Threads: one loop thread owns mpv and all switching decisions; PROBE_WORKERS
+Threads: one loop thread owns the player and all switching decisions; PROBE_WORKERS
 worker threads resolve/probe candidates. Public methods only set a request and
 wake the loop, so they never block the caller.
 """
@@ -11,7 +11,7 @@ import time
 from typing import Callable
 
 from _streamer.models import LiveMatch, StreamCandidate
-from _streamer.player import MpvController
+from _streamer.player import Player
 from _streamer.probe import mark_failed, probe
 from _streamer.settings import (DEAD_RETRY_MAX, MIN_DWELL, POLL_EVERY, PROBE_WORKERS,
                                 RECHECK_EVERY, START_TIMEOUT, STALL_SECS, SWITCH_MARGIN)
@@ -24,9 +24,9 @@ NO_BROWSER_PHASES = ("playing", "switching", "stopped")  # never pop Chrome over
 
 
 class Watcher:
-    def __init__(self, match: LiveMatch, mpv: MpvController, on_change: Callable[[], None]) -> None:
+    def __init__(self, match: LiveMatch, player: Player, on_change: Callable[[], None]) -> None:
         self.match = match
-        self.mpv = mpv
+        self.player = player
         self.candidates: list[StreamCandidate] = []
         self.current: StreamCandidate | None = None
         self.phase = "loading"
@@ -40,6 +40,10 @@ class Watcher:
         self._request: StreamCandidate | str | None = None  # manual target or "next"
         self._reprobe = False
         self._user_closed = False
+        # Preferences (the web app sets these): they rank streams ahead of raw score.
+        self.language = ""        # preferred language; other streams are fallbacks
+        self.prefer_hd = False
+        self.auto_upgrade = True  # move to a much better stream after MIN_DWELL
         # Health of the current stream (loop thread only)
         self._since = 0.0
         self._progress_at = 0.0
@@ -62,7 +66,7 @@ class Watcher:
             self.current, self.phase, self.message = None, "stopped", "Stopped"
             self._stopping.set()
         self._wake.set()
-        self.mpv.stop()
+        self.player.stop()
 
     def play(self, c: StreamCandidate) -> None:
         if c.alive and c is not self.current:
@@ -70,6 +74,12 @@ class Watcher:
 
     def next_stream(self) -> None:
         self._ask("next")
+
+    def set_prefs(self, language: str, prefer_hd: bool, auto_upgrade: bool) -> None:
+        self.language, self.prefer_hd, self.auto_upgrade = language, prefer_hd, auto_upgrade
+        best, cur = self._best(), self.current
+        if best and cur and self._fit(best) > self._fit(cur):
+            self._ask(best)
 
     def reprobe(self) -> None:
         with self._lock:
@@ -124,11 +134,11 @@ class Watcher:
     def _check_current(self) -> None:
         c = self.current
         assert c is not None
-        if self.mpv.exit_code() == 0:
+        if self.player.exit_code() == 0:
             # User closed the window: don't fight them by respawning mpv.
-            log.info("mpv closed by user")
+            log.info("player closed by user")
             self._user_closed = True
-            self._set(current=None, phase="stopped", message="mpv closed — press enter to resume")
+            self._set(current=None, phase="stopped", message="Player closed — pick a stream to resume")
             return
 
         problem = self._health()
@@ -151,14 +161,14 @@ class Watcher:
 
     def _health(self) -> str | None:
         """Problem with the playing stream, or None if it's fine."""
-        code = self.mpv.exit_code()
+        code = self.player.exit_code()
         if code is not None:
-            return f"mpv exited ({code})"
+            return f"player exited ({code})"
         now = time.monotonic()
-        if now - self._since > POLL_EVERY and self.mpv.get("idle-active"):
+        if now - self._since > POLL_EVERY and self.player.get("idle-active"):
             return "stream ended"  # load error or EOF; mpv went idle
-        pos = self.mpv.get("playback-time")
-        if self.mpv.get("pause") or (pos is not None and pos != self._last_pos):
+        pos = self.player.get("playback-time")
+        if self.player.get("pause") or (pos is not None and pos != self._last_pos):
             self._last_pos, self._progress_at = pos, now
             return None
         if self._last_pos is None:
@@ -166,10 +176,11 @@ class Watcher:
         return "stalled" if now - self._progress_at > STALL_SECS else None
 
     def _maybe_upgrade(self, c: StreamCandidate) -> None:
-        if time.monotonic() - self._since < MIN_DWELL:
+        if not self.auto_upgrade or time.monotonic() - self._since < MIN_DWELL:
             return
         best = self._best(exclude=c)
-        if best and c.score() < best.score() * SWITCH_MARGIN:
+        if best and best.checks >= 2 and best.stability >= 0.75 and (self._fit(best) > self._fit(c) or
+                     (self._fit(best) == self._fit(c) and c.score() < best.score() * SWITCH_MARGIN)):
             log.info(f"Upgrade: {c.label} → {best.label}")
             self._switch(best)
 
@@ -179,21 +190,21 @@ class Watcher:
             return
         self._set(phase="switching", message=f"Switching to {c.label}…")
         try:
-            self.mpv.play(url, referrer=c.play_referer, title=self.match.title)
+            self.player.play(url, referrer=c.play_referer, title=self.match.title)
         except Exception as exc:
-            log.error(f"mpv failed: {exc}")
+            log.error(f"player failed: {exc}")
             mark_failed(c)
-            self._set(current=None, message=f"mpv failed: {exc}")
+            self._set(current=None, message=f"Player failed: {exc}")
             return
         if self._stopping.is_set():
-            self.mpv.stop()  # stop() raced with the launch
+            self.player.stop()  # stop() raced with the launch
             return
         now = time.monotonic()
         self._since, self._progress_at, self._last_pos = now, now, None
         self._retry_delay = FIRST_RETRY
         log.info(f"Playing: {c.label}")
         self._set(current=c, phase="playing", message=f"Playing {c.label} · {c.latency_ms}ms")
-        self.mpv.osd(f"▶ {c.label}  ({c.latency_ms}ms)")
+        self.player.osd(f"▶ {c.label}  ({c.latency_ms}ms)")
 
     def _show_waiting(self) -> None:
         """Phase/message while nothing is playing (and the user didn't close mpv)."""
@@ -246,7 +257,11 @@ class Watcher:
 
     def _best(self, exclude: StreamCandidate | None = None) -> StreamCandidate | None:
         alive = [c for c in self.candidates if c.alive and c.resolved and c is not exclude]
-        return max(alive, key=lambda c: c.score(), default=None)
+        return max(alive, key=lambda c: (self._fit(c), c.score()), default=None)
+
+    def _fit(self, c: StreamCandidate) -> tuple[bool, bool]:
+        """How well c matches the preferences, most important first."""
+        return (not self.language or c.language == self.language, not self.prefer_hd or c.hd)
 
     # ── Probe workers ─────────────────────────────────────────────────────────
 

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # stream — one-command launcher.
-#   ./stream              TUI picker, all live matches
+#   ./stream              TUI picker, all live matches (plays in mpv)
 #   ./stream liverpool    TUI filtered by name
+#   ./stream --web        web app in your browser (plays in the page)
 #   ./stream --list       list matches and exit
 cd "$(dirname "$0")"
+if [[ " $* " == *" --web "* ]]; then
+  exec uv run python -m _streamer.web
+fi
 if [[ " $* " == *" --list "* ]]; then
   exec uv run python -m _streamer.cli "$@"
 fi

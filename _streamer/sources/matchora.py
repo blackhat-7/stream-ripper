@@ -22,5 +22,13 @@ def load_candidates(match: LiveMatch) -> list[StreamCandidate]:
     # resolve.py turns /embed/channel/{ch}?fx={event} into a playlist via matchora's play API.
     return [StreamCandidate(label=c["name"] + (" · HD" if c.get("quality") in ("HD", "FHD") else ""),
                             embed_url=f"{_MIRRORS[0]}/embed/channel/{c['id']}?fx={match.id}", site=NAME,
-                            viewers=c.get("watching", 0))
+                            viewers=c.get("watching", 0),
+                            language="" if c.get("lang") in (None, "Other") else c["lang"],
+                            country=_iso(c.get("country") or ""))
             for c in _api(f"/api/v1/events/{match.id}").get("channels", []) if not c.get("dead")]
+
+
+def _iso(flag: str) -> str:
+    """Flag emoji (two regional-indicator letters) -> ISO country code, e.g. 🇪🇸 -> "ES"."""
+    letters = [chr(ord(ch) - 0x1F1E6 + ord("A")) for ch in flag if 0x1F1E6 <= ord(ch) <= 0x1F1FF]
+    return "".join(letters) if len(letters) == 2 else ""

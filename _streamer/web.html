@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Ripper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23fff'/%3E%3Cpath d='M12 9.5v13c0 .8.9 1.3 1.6.8l9.7-6.5c.6-.4.6-1.2 0-1.6l-9.7-6.5c-.7-.5-1.6 0-1.6.8z' fill='%23000'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"></script>
+<style>
+/* Apple system colours (dark appearance) */
+:root {
+  --black: #000;
+  --label: #fff;
+  --label-2: rgba(235, 235, 245, 0.62);
+  --label-3: rgba(235, 235, 245, 0.32);
+  --fill: rgba(118, 118, 128, 0.24);
+  --fill-2: rgba(118, 118, 128, 0.16);
+  --separator: rgba(84, 84, 88, 0.42);
+  --glass: rgba(28, 28, 30, 0.58);
+  --glass-edge: rgba(255, 255, 255, 0.09);
+  --blue: #0a84ff;
+  --red: #ff453a;
+  --green: #30d158;
+  --yellow: #ffd60a;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--black); color: var(--label); overflow: hidden;
+  font: 14px/1.43 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+  letter-spacing: -0.006em; -webkit-font-smoothing: antialiased;
+}
+button, select { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+[hidden] { display: none !important; }
+svg { display: block; flex: none; }
+
+/* ── Shell ───────────────────────────────────────────────────────────── */
+.shell {
+  position: relative; z-index: 1; height: 100vh; display: grid; gap: 12px; padding: 12px;
+  grid-template-columns: 290px minmax(0, 1fr) 330px;
+  transition: grid-template-columns .5s var(--ease), gap .5s var(--ease);
+}
+.shell.no-left { grid-template-columns: 0px minmax(0, 1fr) 330px; }
+.shell.no-right { grid-template-columns: 290px minmax(0, 1fr) 0px; }
+.shell.no-left.no-right { grid-template-columns: 0px minmax(0, 1fr) 0px; gap: 0; }
+
+.panel {
+  min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
+  background: var(--glass); border-radius: 26px;
+  backdrop-filter: blur(50px) saturate(1.8); -webkit-backdrop-filter: blur(50px) saturate(1.8);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), 0 20px 60px rgba(0, 0, 0, 0.35);
+  transition: opacity .35s var(--ease);
+}
+.shell.no-left .library, .shell.no-right .streams-panel { opacity: 0; pointer-events: none; }
+.panel-inner { width: 290px; display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.streams-panel .panel-inner { width: 330px; }
+.panel-head { display: flex; align-items: center; gap: 8px; padding: 20px 14px 12px 22px; }
+.panel-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.panel-count { color: var(--label-2); font-size: 13px; margin-left: 2px; padding-top: 4px; }
+.panel-head .round { margin-left: auto; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding-bottom: 8px; }
+.scroll::-webkit-scrollbar { display: none; }
+
+.round {
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--label-2);
+  transition: background .2s, color .2s, transform .2s var(--spring);
+}
+.round:hover { background: var(--fill-2); color: var(--label); }
+.round:active { transform: scale(0.9); }
+.round.on { color: var(--blue); }
+.round:disabled { opacity: .3; pointer-events: none; }
+.spinning svg { animation: spin 1s linear infinite; }
+
+/* ── Library (matches) ───────────────────────────────────────────────── */
+.search {
+  margin: 0 14px 6px; display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 10px;
+  border-radius: 11px; background: var(--fill); color: var(--label-2);
+}
+.search input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; outline: 0; color: var(--label); font: inherit; font-size: 15px; }
+.search input::placeholder { color: var(--label-2); }
+.search input:focus-visible { outline: none; }
+.search:focus-within { box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.45); }
+.group-title { padding: 18px 22px 6px; font-size: 13px; font-weight: 600; color: var(--label-2); }
+.match {
+  position: relative; width: calc(100% - 16px); margin: 0 8px; display: flex; align-items: center; gap: 11px;
+  padding: 9px 8px 9px 12px; border-radius: 13px; text-align: left; transition: background .2s;
+}
+.match:hover { background: var(--fill-2); }
+.match.active { background: var(--fill); }
+.match-name { min-width: 0; flex: 1; }
+.match-name b { display: block; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.match-name span { font-size: 12px; color: var(--label-2); }
+.star { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: var(--label-3); opacity: 0; transition: opacity .2s, color .2s; flex: none; }
+.match:hover .star, .star.on { opacity: 1; }
+.star.on { color: var(--yellow); }
+.star:hover { color: var(--label); }
+.star.on:hover { color: var(--yellow); }
+.empty-note { padding: 36px 24px; color: var(--label-2); font-size: 13px; text-align: center; }
+.skeleton { height: 46px; margin: 6px 14px; border-radius: 13px; background: linear-gradient(90deg, var(--fill-2), var(--fill), var(--fill-2)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.crests { display: flex; flex: none; }
+.crest {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  font-size: 10px; font-weight: 700; color: #fff; letter-spacing: -0.01em;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.25);
+}
+.crests .crest + .crest { margin-left: 3px; }
+
+/* ── Stage ───────────────────────────────────────────────────────────── */
+.stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.toolbar { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 4px; flex: none; }
+.toolbar .grow { flex: 1; }
+.stage-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; }
+.stage-body::-webkit-scrollbar { display: none; }
+
+/* Home: what's live, as big tiles */
+.home { width: 100%; max-width: 1100px; margin: 0 auto; padding: 28px 24px 40px; }
+.large-title { font-size: 34px; line-height: 41px; font-weight: 700; letter-spacing: -0.025em; }
+.home-sub { color: var(--label-2); font-size: 15px; margin-top: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 26px; }
+.tile {
+  position: relative; text-align: left; border-radius: 22px; padding: 18px; min-height: 150px; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  box-shadow: inset 0 0 0 1px var(--glass-edge), 0 14px 40px rgba(0, 0, 0, 0.35);
+  transition: transform .4s var(--spring), box-shadow .3s;
+}
+.tile::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,.55)); }
+.tile > * { position: relative; }
+.tile:hover { transform: scale(1.025); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 22px 50px rgba(0,0,0,.5); }
+.tile .crest { width: 44px; height: 44px; font-size: 15px; background: rgba(255,255,255,.18) !important; backdrop-filter: blur(10px); }
+.tile .crests .crest + .crest { margin-left: 6px; }
+.tile-title { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.25; margin-top: 16px; }
+.tile-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,.75); margin-top: 6px; }
+.live-tag { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; font-size: 11px; color: #fff; padding: 2px 7px; border-radius: 6px; background: var(--red); }
+
+/* Watching */
+.watch { width: 100%; padding: 4px 18px 24px; }
+.watch-inner { width: min(100%, calc((100vh - 280px) * 16 / 9)); min-width: min(100%, 520px); margin: 0 auto; }
+.title-row { display: flex; align-items: center; gap: 14px; margin: 6px 2px 16px; }
+.title-row .crest { width: 42px; height: 42px; font-size: 14px; }
+.title-row .crests .crest + .crest { margin-left: 5px; }
+.title-text { min-width: 0; flex: 1; }
+.title-text h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.025em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title-text p { color: var(--label-2); font-size: 14px; }
+
+.player {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 22px; overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 40px 100px rgba(0, 0, 0, 0.6);
+}
+.player video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity .6s var(--ease); }
+.player video.shown { opacity: 1; }
+.player.hide-cursor { cursor: none; }
+.veil { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; transition: opacity .4s var(--ease); background: rgba(0,0,0,.35); }
+.veil.off { opacity: 0; }
+.veil-inner { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px; max-width: 380px; }
+.veil p { color: rgba(255,255,255,.85); font-size: 15px; font-weight: 500; }
+.veil small { color: rgba(255,255,255,.55); font-size: 13px; }
+.spinner { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.18); border-top-color: #fff; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* AVKit-style floating controls */
+.controls {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  width: min(620px, calc(100% - 32px)); height: 50px; padding: 0 8px; border-radius: 16px;
+  display: flex; align-items: center; gap: 2px;
+  background: rgba(40, 40, 42, 0.55); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.14), 0 10px 30px rgba(0,0,0,.35);
+  transition: opacity .3s var(--ease), transform .3s var(--ease);
+}
+.controls.off { opacity: 0; transform: translate(-50%, 6px); pointer-events: none; }
+.ctl { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; transition: background .15s, transform .2s var(--spring); }
+.ctl:hover { background: rgba(255,255,255,.12); }
+.ctl:active { transform: scale(.88); }
+.volume { width: 80px; height: 4px; accent-color: #fff; margin: 0 6px; }
+.ctl-live { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex: none; }
+.ctl-live .dot { animation: pulse 1.8s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.ctl-name { flex: 1; min-width: 0; font-size: 13px; color: rgba(255,255,255,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.unmute {
+  position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%); display: none; align-items: center; gap: 8px;
+  height: 36px; padding: 0 16px; border-radius: 18px; font-size: 13px; font-weight: 600; color: #fff;
+  background: rgba(40,40,42,.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.14);
+}
+.unmute.show { display: inline-flex; }
+
+/* HUD toast */
+.hud {
+  position: absolute; top: 16px; left: 50%; transform: translate(-50%, -8px); opacity: 0; pointer-events: none;
+  display: flex; align-items: center; gap: 10px; padding: 8px 16px 8px 8px; border-radius: 22px; max-width: calc(100% - 32px);
+  background: rgba(40,40,42,.62); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.14), 0 10px 30px rgba(0,0,0,.35);
+  font-size: 13px; line-height: 1.3; transition: opacity .35s var(--ease), transform .45s var(--spring);
+}
+.hud.show { opacity: 1; transform: translate(-50%, 0); }
+.hud b { font-weight: 600; }
+.hud span { color: rgba(255,255,255,.65); }
+.hud .chan { width: 34px; height: 34px; border-radius: 9px; }
+
+/* Now playing card */
+.now {
+  display: flex; align-items: center; gap: 14px; margin-top: 14px; padding: 14px 14px 14px 16px; border-radius: 20px;
+  background: var(--glass); backdrop-filter: blur(50px) saturate(1.8); -webkit-backdrop-filter: blur(50px) saturate(1.8);
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
+}
+.now-text { min-width: 0; flex: 1; }
+.now-text b { display: block; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 5px; color: var(--label-2); font-size: 12.5px; }
+.fact { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pill-btn {
+  height: 34px; padding: 0 14px; border-radius: 17px; display: inline-flex; align-items: center; gap: 7px; flex: none;
+  background: var(--fill); font-size: 13px; font-weight: 600; transition: background .2s, transform .2s var(--spring);
+}
+.pill-btn:hover { background: rgba(118,118,128,.34); }
+.pill-btn:active { transform: scale(.95); }
+
+/* Channel tiles, quality badges, signal bars */
+.chan {
+  width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; color: #fff; letter-spacing: -0.02em;
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.2);
+}
+.q { font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 0 4px; border-radius: 4px; border: 1px solid currentColor; line-height: 14px; flex: none; }
+.q.hd { color: var(--label); }
+.q.sd { color: var(--label-3); }
+.signal { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+.signal i { width: 3px; border-radius: 1px; background: var(--label-3); }
+.signal i:nth-child(1) { height: 4px; } .signal i:nth-child(2) { height: 6.5px; } .signal i:nth-child(3) { height: 9px; } .signal i:nth-child(4) { height: 12px; }
+.signal i.lit { background: var(--label); }
+
+/* ── Streams panel ───────────────────────────────────────────────────── */
+.segmented { display: flex; margin: 0 14px; padding: 2px; border-radius: 9px; background: var(--fill-2); position: relative; }
+.segmented button { flex: 1; height: 28px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--label-2); transition: color .2s; position: relative; z-index: 1; }
+.segmented button.on { color: var(--label); }
+.segmented .thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 7px; background: rgba(99, 99, 102, 0.85); box-shadow: 0 3px 8px rgba(0,0,0,.25); transition: left .35s var(--spring), width .35s var(--spring); }
+.filters { display: flex; gap: 8px; padding: 10px 14px 8px; }
+.select {
+  position: relative; flex: 1; min-width: 0; height: 32px; border-radius: 9px; background: var(--fill-2);
+  display: flex; align-items: center; padding: 0 28px 0 10px; font-size: 13px; color: var(--label);
+}
+.select select { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.select span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.select svg { position: absolute; right: 10px; color: var(--label-2); }
+.chip { height: 32px; padding: 0 14px; border-radius: 9px; background: var(--fill-2); font-size: 13px; font-weight: 600; color: var(--label-2); transition: background .2s, color .2s; }
+.chip.on { background: rgba(10, 132, 255, 0.22); color: #4da3ff; }
+
+.stream {
+  width: calc(100% - 16px); margin: 0 8px; display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 9px 12px 9px 10px; border-radius: 14px; transition: background .2s, opacity .2s;
+}
+.stream:hover { background: var(--fill-2); }
+.stream.current { background: rgba(10, 132, 255, 0.2); }
+.stream.off { opacity: .4; cursor: default; }
+.stream.off:hover { background: none; }
+.stream-text { min-width: 0; flex: 1; }
+.stream-text b { display: block; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stream-facts { display: flex; align-items: center; gap: 7px; margin-top: 3px; font-size: 12px; color: var(--label-2); white-space: nowrap; overflow: hidden; }
+.checking { color: var(--yellow); }
+.eq { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
+.eq i { width: 3px; border-radius: 1px; background: var(--blue); animation: eq 1s infinite ease-in-out; }
+.eq i:nth-child(2) { animation-delay: -.3s; } .eq i:nth-child(3) { animation-delay: -.6s; }
+@keyframes eq { 0%, 100% { height: 4px; } 50% { height: 12px; } }
+.stream-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.stream-side small { font-size: 11px; color: var(--label-3); font-variant-numeric: tabular-nums; }
+.panel-foot { padding: 6px 22px 16px; font-size: 12px; color: var(--label-3); }
+.panel-foot:empty { display: none; }
+
+/* ── Settings sheet ──────────────────────────────────────────────────── */
+.sheet {
+  position: fixed; z-index: 10; top: 60px; right: 24px; width: 350px; max-height: calc(100vh - 80px); overflow-y: auto;
+  padding: 8px 0; border-radius: 22px;
+  background: rgba(36, 36, 38, 0.72); backdrop-filter: blur(60px) saturate(1.9); -webkit-backdrop-filter: blur(60px) saturate(1.9);
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.16), 0 30px 80px rgba(0,0,0,.55);
+  transform-origin: top right; transform: scale(.94); opacity: 0; pointer-events: none;
+  transition: transform .4s var(--spring), opacity .2s var(--ease);
+}
+.sheet.open { transform: none; opacity: 1; pointer-events: auto; }
+.sheet h3 { font-size: 17px; font-weight: 600; padding: 12px 18px 4px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 18px; }
+.row + .row { box-shadow: inset 0 0.5px 0 var(--separator); }
+.row-text { flex: 1; min-width: 0; }
+.row-text b { display: block; font-weight: 500; font-size: 14px; }
+.row-text span { display: block; font-size: 12px; color: var(--label-2); margin-top: 1px; }
+.row .select { flex: none; width: 130px; }
+.switch { position: relative; width: 51px; height: 31px; border-radius: 16px; background: rgba(120,120,128,.32); flex: none; transition: background .25s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16); transition: transform .35s var(--spring); }
+.switch.on { background: var(--green); }
+.switch.on::after { transform: translateX(20px); }
+.keys { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px 12px; padding: 8px 18px 14px; font-size: 13px; color: var(--label-2); }
+.keys kbd { font: 600 11px/1 -apple-system, BlinkMacSystemFont, Inter, sans-serif; color: var(--label); justify-self: start; min-width: 24px; text-align: center; padding: 5px 7px; border-radius: 6px; background: var(--fill); }
+
+@media (max-width: 1100px) {
+  .shell { display: block; }  /* drawers are fixed overlays here, so the stage takes the whole width */
+  .stage { height: 100%; }
+  .library, .streams-panel { position: fixed; top: 12px; bottom: 12px; z-index: 5; width: 300px; transition: transform .45s var(--ease), opacity .3s; }
+  .library { left: 12px; } .streams-panel { right: 12px; }
+  .shell.no-left .library { transform: translateX(-110%); }
+  .shell.no-right .streams-panel { transform: translateX(110%); }
+  .library .panel-inner, .streams-panel .panel-inner { width: 300px; }
+  .stage { transition: filter .35s var(--ease); }
+  .shell:not(.no-left) .stage, .shell:not(.no-right) .stage { filter: brightness(.45); }
+}
+@media (max-width: 640px) {
+  .watch, .home { padding-left: 4px; padding-right: 4px; }
+  .large-title { font-size: 28px; line-height: 34px; }
+  .title-text h1 { font-size: 22px; line-height: 28px; }
+  .now { flex-wrap: wrap; }
+  .volume, .ctl-name { display: none; }
+  .sheet { right: 12px; left: 12px; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; transition-duration: .001s !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell" id="shell">
+  <aside class="panel library" id="library">
+    <div class="panel-inner">
+      <div class="panel-head">
+        <span class="panel-title">Matches</span>
+        <button class="round" id="refresh" title="Refresh matches" aria-label="Refresh matches">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4.5V9h-4.5"/></svg>
+        </button>
+      </div>
+      <label class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.6-4.6"/></svg>
+        <input id="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search matches">
+      </label>
+      <div class="scroll" id="matches"></div>
+    </div>
+  </aside>
+
+  <section class="stage">
+    <div class="toolbar">
+      <button class="round" id="toggle-left" title="Show or hide matches  [" aria-label="Show or hide matches">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M9.5 4.5v15"/></svg>
+      </button>
+      <span class="grow"></span>
+      <button class="round" id="theater" title="Theater mode  t" aria-label="Theater mode">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M20 9V5.5A1.5 1.5 0 0 0 18.5 4H15M4 15v3.5A1.5 1.5 0 0 0 5.5 20H9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/></svg>
+      </button>
+      <button class="round" id="settings-btn" title="Settings  ," aria-label="Settings">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/></svg>
+      </button>
+      <button class="round" id="toggle-right" title="Show or hide streams  ]" aria-label="Show or hide streams">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M14.5 4.5v15"/></svg>
+      </button>
+    </div>
+
+    <div class="stage-body">
+      <div class="home" id="home">
+        <h1 class="large-title">Live now</h1>
+        <p class="home-sub" id="home-sub">Looking for live matches…</p>
+        <div class="tiles" id="tiles"></div>
+      </div>
+
+      <div class="watch" id="watch" hidden>
+        <div class="watch-inner">
+          <div class="title-row" id="title-row"></div>
+          <div class="player" id="player">
+            <video id="video-a" class="shown" playsinline></video>
+            <video id="video-b" playsinline></video>
+            <div class="veil" id="veil"><div class="veil-inner" id="veil-inner"></div></div>
+            <div class="hud" id="hud"></div>
+            <button class="unmute" id="unmute">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m22 9-6 6M16 9l6 6"/></svg>
+              Turn on sound
+            </button>
+            <div class="controls off" id="controls">
+              <button class="ctl" id="play" aria-label="Play or pause"></button>
+              <button class="ctl" id="mute" aria-label="Mute"></button>
+              <input class="volume" id="volume" type="range" min="0" max="1" step="0.01" aria-label="Volume">
+              <span class="ctl-live"><span class="dot"></span>Live</span>
+              <span class="ctl-name" id="ctl-name"></span>
+              <button class="ctl" id="pip" aria-label="Picture in picture" title="Picture in picture">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><rect x="12" y="11" width="6" height="5" rx="1.2" fill="currentColor"/></svg>
+              </button>
+              <button class="ctl" id="fullscreen" aria-label="Full screen" title="Full screen  f">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="now" id="now"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel streams-panel" id="streams-panel">
+    <div class="panel-inner">
+      <div class="panel-head">
+        <span class="panel-title">Streams</span><span class="panel-count" id="stream-count"></span>
+        <button class="round" id="reprobe" title="Check every stream again" aria-label="Check every stream again">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4.5V9h-4.5"/></svg>
+        </button>
+      </div>
+      <div class="segmented" id="sort" aria-label="Sort streams">
+        <span class="thumb"></span>
+        <button data-v="best">Best</button>
+        <button data-v="stable">Stable</button>
+        <button data-v="fast">Fastest</button>
+      </div>
+      <div class="filters">
+        <label class="select"><span id="lang-filter-label">All languages</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m2 3.5 3 3 3-3"/></svg>
+          <select id="lang-filter" aria-label="Filter by language"></select>
+        </label>
+        <button class="chip" id="hd-filter" aria-pressed="false" title="Only show HD streams">HD only</button>
+      </div>
+      <div class="scroll" id="streams"></div>
+      <div class="panel-foot" id="streams-foot"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="sheet" id="sheet" role="dialog" aria-label="Settings">
+  <h3>Playback</h3>
+  <div class="row"><div class="row-text"><b>Switch to better streams</b><span>Moves to a clearly faster or steadier stream once one has played for a minute.</span></div><button class="switch" data-pref="autoSwitch" aria-label="Switch to better streams"></button></div>
+  <div class="row"><div class="row-text"><b>Prefer HD</b><span>Pick HD streams first when one is live.</span></div><button class="switch" data-pref="hd" aria-label="Prefer HD"></button></div>
+  <div class="row"><div class="row-text"><b>Language</b><span>Pick streams in this language first.</span></div>
+    <label class="select"><span id="pref-lang-label">Any</span>
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m2 3.5 3 3 3-3"/></svg>
+      <select id="pref-lang" aria-label="Preferred language"></select>
+    </label>
+  </div>
+  <h3>Display</h3>
+  <div class="row"><div class="row-text"><b>Show offline streams</b><span>List streams that failed their last check.</span></div><button class="switch" data-ui="showOffline" aria-label="Show offline streams"></button></div>
+  <h3>Keys</h3>
+  <div class="keys">
+    <kbd>space</kbd><span>Play or pause</span><kbd>n</kbd><span>Next best stream</span>
+    <kbd>f</kbd><span>Full screen</span><kbd>t</kbd><span>Theater mode</span>
+    <kbd>[</kbd><span>Show or hide matches</span><kbd>]</kbd><span>Show or hide streams</span>
+    <kbd>/</kbd><span>Search matches</span><kbd>,</kbd><span>Settings</span>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const ICON = {
+  play: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4c0 .9 1 1.4 1.7.9l11-7.2c.7-.4.7-1.4 0-1.8l-11-7.2C8 3.4 7 3.9 7 4.8z"/></svg>',
+  pause: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4.2" height="16" rx="1.3"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.3"/></svg>',
+  sound: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
+  muted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m22 9-6 6M16 9l6 6"/></svg>',
+  star: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.4 6.3-.9z"/></svg>',
+  next: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 5.6v12.8c0 .8.9 1.3 1.6.8l9-6.4c.6-.4.6-1.2 0-1.6l-9-6.4C4.9 4.3 4 4.8 4 5.6z"/><rect x="17" y="5" width="3" height="14" rx="1.5"/></svg>',
+};
+const SITES = { ppv: "PPV", cdnlive: "CDN Live", streamfree: "StreamFree", timstreams: "TimStreams", totalsportek: "TotalSportek", futbolx: "Futbol-X", roxie: "Roxie", streamed: "Streamed", matchora: "Matchora" };
+const small = () => matchMedia("(max-width: 1100px)").matches;
+
+// ── Saved per browser ───────────────────────────────────────────────────────
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const ui = Object.assign({ left: !small(), right: true, showOffline: true, sort: "best", hdOnly: false, lang: "" }, store.get("ui", {}));
+let prefs = Object.assign({ language: "", hd: false, autoSwitch: true }, store.get("prefs", {}));
+const favorites = new Set(store.get("favorites", []));
+const languages = new Set(store.get("languages", []));
+const saveUi = () => store.set("ui", ui);
+
+let matches = [], state = { match: null }, query = "";
+// started: the stream the server asked for is the one playing. showing: something is on screen.
+// resuming: this page load is picking up a stream that was already playing (e.g. after a reload).
+let loadedId = -1, started = false, showing = false, buffering = false, failed = false, resuming = true;
+let lastCurrent = null, userPicked = false;
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const out = await res.json();
+  if (!res.ok) throw new Error(out.error || res.statusText);
+  return out;
+}
+function setHTML(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
+
+// ── Visual identity ─────────────────────────────────────────────────────────
+function hue(s) { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; }
+function initials(name) {
+  const words = name.replace(/\b(fc|cf|afc|sc|ac|cd|the)\b/gi, "").replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return name.slice(0, 2).toUpperCase();
+  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+}
+const teams = (title) => { const p = title.split(/\s+(?:vs?\.?|-|–|@)\s+/i); return p.length === 2 ? p : [title]; };
+const grad = (name, s, l) => { const h = hue(name); return `linear-gradient(140deg,hsl(${h} ${s}% ${l}%),hsl(${(h + 35) % 360} ${s}% ${l - 18}%))`; };
+const crest = (name) => `<span class="crest" style="background:${grad(name, 58, 52)}">${esc(initials(name))}</span>`;
+const crests = (title) => `<span class="crests">${teams(title).map(crest).join("")}</span>`;
+const tileBg = (title) => { const [a, b = a] = teams(title); return `background:linear-gradient(135deg,hsl(${hue(a)} 52% 34%),hsl(${hue(b)} 52% 22%))`; };
+const cleanLabel = (s) => {
+  let t = s.label.replace(/\s*·\s*(HD|SD)\b/g, "");
+  if (s.language) t = t.replace(new RegExp(`\\s*·\\s*${s.language.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"), "");
+  return t.trim();
+};
+const chan = (s) => `<span class="chan" style="background:${grad(cleanLabel(s), 42, 40)}">${esc(initials(cleanLabel(s)))}</span>`;
+const flag = (cc) => (/^[A-Z]{2}$/.test(cc || "") ? String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)) : "");
+const isHD = (s) => (s.height ? s.height >= 720 : s.hd);
+// Quality only when known: measured height, or the source saying HD.
+const quality = (s) => (s.height >= 2160 ? "4K" : s.height >= 1080 ? "1080p" : s.height >= 720 ? "720p" : s.height ? `${s.height}p` : s.hd ? "HD" : "");
+const qBadge = (s) => (quality(s) ? `<span class="q ${isHD(s) ? "hd" : "sd"}">${quality(s)}</span>` : "");
+const bars = (s) => {
+  const lit = s.checks ? Math.max(1, Math.round(s.stability * 4)) : 0;
+  const tip = s.checks ? `Passed ${Math.round(s.stability * 100)}% of health checks` : "Not checked yet";
+  return `<span class="signal" title="${tip}">${[1, 2, 3, 4].map((i) => `<i class="${i <= lit ? "lit" : ""}"></i>`).join("")}</span>`;
+};
+const fmtMs = (ms) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+const fmtViewers = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+const langText = (s) => [flag(s.country), s.language].filter(Boolean).join(" ");
+const stabilityWord = (s) => (!s.checks ? "New" : s.stability >= 0.75 ? "Stable" : s.stability >= 0.5 ? "Fair" : "Shaky");
+const siteName = (s) => SITES[s.site] || s.site;
+
+// ── Layout: drawers, theater ───────────────────────────────────────
+function applyUi() {
+  const hasMatch = !!state.match;
+  if (small() && ui.left && ui.right && hasMatch) ui.right = false;  // drawers overlap when narrow
+  $("shell").classList.toggle("no-left", !ui.left);
+  $("shell").classList.toggle("no-right", !ui.right || !hasMatch);
+  $("toggle-left").classList.toggle("on", ui.left);
+  $("toggle-right").classList.toggle("on", ui.right && hasMatch);
+  $("toggle-right").disabled = !hasMatch;
+  $("theater").disabled = !hasMatch;
+  $("theater").classList.toggle("on", hasMatch && !ui.left && !ui.right);
+  document.querySelectorAll("[data-ui]").forEach((b) => b.classList.toggle("on", !!ui[b.dataset.ui]));
+  document.querySelectorAll("[data-pref]").forEach((b) => b.classList.toggle("on", !!prefs[b.dataset.pref]));
+  $("hd-filter").classList.toggle("on", ui.hdOnly);
+  $("hd-filter").setAttribute("aria-pressed", ui.hdOnly);
+  const btns = [...$("sort").querySelectorAll("button")];
+  btns.forEach((b) => b.classList.toggle("on", b.dataset.v === ui.sort));
+  const on = btns.find((b) => b.dataset.v === ui.sort);
+  if (on?.offsetWidth) Object.assign($("sort").querySelector(".thumb").style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" });
+}
+function toggle(which) {
+  ui[which] = !ui[which];
+  if (small() && ui[which]) ui[which === "left" ? "right" : "left"] = false;  // one drawer at a time
+  saveUi(); applyUi();
+}
+$("toggle-left").onclick = () => toggle("left");
+$("toggle-right").onclick = () => toggle("right");
+$("theater").onclick = () => { const open = ui.left || ui.right; ui.left = ui.right = !open && !small(); saveUi(); applyUi(); };
+window.addEventListener("resize", applyUi);
+// Narrow windows: drawers float over the stage; tapping the stage closes them.
+document.querySelector(".stage").addEventListener("click", (e) => {
+  if (!small() || e.target.closest(".toolbar") || !(ui.left || (ui.right && state.match))) return;
+  e.stopPropagation(); ui.left = ui.right = false; saveUi(); applyUi();
+}, true);
+
+
+// ── Settings ────────────────────────────────────────────────────────────────
+$("settings-btn").onclick = (e) => { e.stopPropagation(); $("sheet").classList.toggle("open"); };
+document.addEventListener("click", (e) => { if (!$("sheet").contains(e.target)) $("sheet").classList.remove("open"); });
+document.querySelectorAll("[data-ui]").forEach((b) => (b.onclick = () => { ui[b.dataset.ui] = !ui[b.dataset.ui]; saveUi(); applyUi(); renderStreams(); }));
+document.querySelectorAll("[data-pref]").forEach((b) => (b.onclick = () => setPrefs({ [b.dataset.pref]: !prefs[b.dataset.pref] })));
+$("pref-lang").onchange = (e) => setPrefs({ language: e.target.value });
+function setPrefs(change) {
+  prefs = { ...prefs, ...change };
+  store.set("prefs", prefs);
+  api("/api/prefs", prefs).catch(() => {});
+  applyUi(); renderLanguageMenus();
+}
+function renderLanguageMenus() {
+  const langs = [...languages].sort();
+  const opts = (any) => `<option value="">${any}</option>` + langs.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join("");
+  setHTML($("pref-lang"), opts("Any")); $("pref-lang").value = prefs.language;
+  $("pref-lang-label").textContent = prefs.language || "Any";
+  setHTML($("lang-filter"), opts("All languages")); $("lang-filter").value = ui.lang;
+  $("lang-filter-label").textContent = ui.lang || "All languages";
+}
+$("lang-filter").onchange = (e) => { ui.lang = e.target.value; saveUi(); renderLanguageMenus(); renderStreams(); };
+$("hd-filter").onclick = () => { ui.hdOnly = !ui.hdOnly; saveUi(); applyUi(); renderStreams(); };
+$("sort").onclick = (e) => { const b = e.target.closest("button"); if (b) { ui.sort = b.dataset.v; saveUi(); applyUi(); renderStreams(); } };
+
+// ── Matches ─────────────────────────────────────────────────────────────────
+async function loadMatches(refresh = false) {
+  if (!matches.length) $("matches").innerHTML = '<div class="skeleton"></div>'.repeat(8);
+  $("refresh").classList.add("spinning");
+  try { matches = await api("/api/matches" + (refresh ? "?refresh=1" : "")); }
+  catch (e) { if (!matches.length) $("home-sub").textContent = `Couldn't load matches: ${e.message}`; }
+  $("refresh").classList.remove("spinning");
+  renderMatches(); renderHome();
+}
+const favKey = (m) => m.title.toLowerCase();
+function renderMatches() {
+  const q = query.toLowerCase();
+  const shown = matches.filter((m) => !q || `${m.title} ${m.league}`.toLowerCase().includes(q));
+  if (!shown.length) {
+    setHTML($("matches"), `<div class="empty-note">${matches.length ? `Nothing matches “${esc(query)}”.` : "No live matches right now. Check back closer to kick-off."}</div>`);
+    return;
+  }
+  const groups = new Map();
+  const favs = shown.filter((m) => favorites.has(favKey(m)));
+  if (favs.length) groups.set("Favorites", favs);
+  for (const m of shown) {
+    if (favorites.has(favKey(m))) continue;
+    const g = m.league || "Other matches";
+    groups.set(g, [...(groups.get(g) || []), m]);
+  }
+  let html = "";
+  for (const [title, ms] of groups) {
+    html += `<div class="group-title">${esc(title)}</div>` + ms.map((m) => `
+      <button class="match${m.key === state.match?.key ? " active" : ""}" data-key="${esc(m.key)}">
+        ${crests(m.title)}
+        <span class="match-name"><b>${esc(m.title)}</b><span>${m.sites.length} ${m.sites.length === 1 ? "source" : "sources"}</span></span>
+        <span class="star${favorites.has(favKey(m)) ? " on" : ""}" data-fav="${esc(favKey(m))}" title="${favorites.has(favKey(m)) ? "Remove from favorites" : "Add to favorites"}">${ICON.star}</span>
+      </button>`).join("");
+  }
+  setHTML($("matches"), html);
+}
+function renderHome() {
+  const n = matches.length;
+  $("home-sub").textContent = n ? `${n} ${n === 1 ? "match" : "matches"} on now. Pick one and the best stream starts by itself.` : "No live matches right now. Check back closer to kick-off.";
+  const sorted = [...matches].sort((a, b) => favorites.has(favKey(b)) - favorites.has(favKey(a)) || b.sites.length - a.sites.length);
+  setHTML($("tiles"), sorted.map((m) => `<button class="tile" data-key="${esc(m.key)}" style="${tileBg(m.title)}">
+      ${crests(m.title)}
+      <div><div class="tile-title">${esc(m.title)}</div>
+      <div class="tile-meta"><span class="live-tag">Live</span>${esc(m.league || "Football")}</div></div>
+    </button>`).join(""));
+}
+async function watch(key) {
+  if (key === state.match?.key) return;
+  const m = matches.find((x) => x.key === key);
+  state = { match: { key: m.key, title: m.title, league: m.league }, phase: "loading", message: "Finding the best stream…", streams: [] };
+  lastCurrent = null;
+  if (small()) ui.left = false;
+  render();
+  try { await api("/api/watch", { key }); } catch (err) { state.message = err.message; render(); }
+  tick();
+}
+$("matches").addEventListener("click", (e) => {
+  const star = e.target.closest(".star");
+  if (star) {
+    e.stopPropagation();
+    favorites.has(star.dataset.fav) ? favorites.delete(star.dataset.fav) : favorites.add(star.dataset.fav);
+    store.set("favorites", [...favorites]); renderMatches(); renderHome();
+    return;
+  }
+  const btn = e.target.closest(".match");
+  if (btn) watch(btn.dataset.key);
+});
+$("tiles").addEventListener("click", (e) => { const t = e.target.closest(".tile"); if (t) watch(t.dataset.key); });
+$("search").addEventListener("input", (e) => { query = e.target.value; renderMatches(); });
+$("refresh").onclick = () => loadMatches(true);
+
+// ── Player ──────────────────────────────────────────────────────────────────
+// Two <video>s: the one on screen, and one loading the next stream behind it.
+// A switch swaps them only once the new stream is actually playing, so a stream
+// that never starts costs nothing on screen.
+const videos = [$("video-a"), $("video-b")];
+let video = videos[0];   // on screen
+let pending = null;      // loading in the background
+const players = new Map();  // video element -> its hls.js instance
+let sound = { muted: store.get("muted", false), volume: store.get("volume", 1) };
+
+function attach(el, url) {
+  detach(el);
+  el._url = url;
+  if (window.Hls && Hls.isSupported()) {
+    let recovered = false;
+    // Patient retries: these CDNs drop connections often, and giving up means a switch.
+    const retry = (timeoutMs) => ({ default: { maxTimeToFirstByteMs: timeoutMs, maxLoadTimeMs: timeoutMs * 2,
+      timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: 6, retryDelayMs: 500, maxRetryDelayMs: 4000, backoff: "linear" } } });
+    const h = new Hls({ liveSyncDurationCount: 4, maxBufferLength: 30, enableWorker: true,
+      manifestLoadPolicy: retry(10000), playlistLoadPolicy: retry(10000), fragLoadPolicy: retry(20000) });
+    h.on(Hls.Events.ERROR, (_, d) => {
+      if (!d.fatal) return;
+      if (d.type === Hls.ErrorTypes.MEDIA_ERROR && !recovered) { recovered = true; h.recoverMediaError(); return; }
+      fail(el);
+    });
+    h.loadSource(url);
+    h.attachMedia(el);
+    players.set(el, h);
+  } else {
+    el.src = url;  // Safari plays HLS natively
+  }
+}
+function detach(el) {
+  players.get(el)?.destroy();
+  players.delete(el);
+  el._url = "";
+  el.removeAttribute("src");
+  el.load();
+}
+function fail(el) {
+  if (el === (pending || video)) { failed = true; tick(); }  // only the stream the server is judging
+}
+
+function load(url, id) {
+  loadedId = id; failed = false;
+  if (pending) { detach(pending); pending = null; }
+  if (!url) { detach(video); showing = started = false; renderPlayer(); return; }
+  if (showing && url === video._url) { started = true; return; }  // already on screen
+  started = false;
+  if (!showing) { attach(video, url); playWithSound(video); return; }  // nothing on screen to protect
+  pending = videos.find((v) => v !== video);
+  pending.muted = true;
+  attach(pending, url);
+  pending.play().catch(() => {});
+}
+function swap() {
+  const old = video;
+  video = pending; pending = null;
+  video.classList.add("shown"); old.classList.remove("shown");
+  showing = started = true; buffering = resuming = false;
+  playWithSound(video);
+  setTimeout(() => { if (old !== video && old !== pending) detach(old); }, 700);  // after the crossfade
+}
+
+async function playWithSound(el) {
+  el.volume = sound.volume;
+  el.muted = sound.muted;
+  try { await el.play(); }
+  catch {
+    el.muted = true;  // the browser blocked sound: play muted and offer to turn it on
+    try { await el.play(); } catch {}
+  }
+  $("unmute").classList.toggle("show", el.muted && !sound.muted);
+}
+function setSound(change) {
+  sound = { ...sound, ...change };
+  store.set("muted", sound.muted); store.set("volume", sound.volume);
+  video.muted = sound.muted; video.volume = sound.volume;
+  $("unmute").classList.remove("show");
+}
+
+for (const el of videos) {
+  el.addEventListener("playing", () => {
+    if (el === pending) swap();
+    else if (el === video) { showing = started = true; buffering = resuming = false; }
+    renderPlayer(); applyUi();
+  });
+  el.addEventListener("waiting", () => { if (el === video) { buffering = true; renderPlayer(); } });
+  ["pause", "play", "volumechange"].forEach((ev) => el.addEventListener(ev, () => el === video && renderPlayer()));
+  el.addEventListener("error", () => { if (!players.has(el) && el._url) fail(el); });
+  el.addEventListener("ended", () => fail(el));
+  el.onclick = () => togglePlay();
+  el.ondblclick = () => toggleFullscreen();
+}
+
+const togglePlay = () => showing && (video.paused ? video.play().catch(() => {}) : video.pause());
+const toggleFullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : $("player").requestFullscreen()).catch(() => {});
+$("play").onclick = togglePlay;
+$("mute").onclick = () => setSound({ muted: !video.muted });
+$("unmute").onclick = () => setSound({ muted: false });
+$("volume").oninput = (e) => setSound({ volume: +e.target.value, muted: +e.target.value === 0 });
+$("pip").onclick = () => (document.pictureInPictureElement ? document.exitPictureInPicture() : video.requestPictureInPicture()).catch(() => {});
+$("fullscreen").onclick = toggleFullscreen;
+
+let idle;
+function wake() {
+  $("controls").classList.toggle("off", !state.url || !showing);
+  $("player").classList.remove("hide-cursor");
+  clearTimeout(idle);
+  idle = setTimeout(() => { if (!video.paused) { $("controls").classList.add("off"); $("player").classList.add("hide-cursor"); } }, 2500);
+}
+$("player").addEventListener("mousemove", wake);
+$("player").addEventListener("mouseleave", () => !video.paused && $("controls").classList.add("off"));
+
+let hudTimer;
+function hud(html) {
+  setHTML($("hud"), html);
+  $("hud").classList.add("show");
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => $("hud").classList.remove("show"), 4000);
+}
+
+// ── Server sync ─────────────────────────────────────────────────────────────
+let ticking = false;
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    state = await api("/api/state", { loadId: loadedId, pos: started ? video.currentTime : null, paused: started && video.paused, failed, resuming, height: started ? video.videoHeight : 0 });
+    const seen = {};  // sources reuse channel names: number repeats so each row is distinct
+    for (const s of state.streams || []) { const n = cleanLabel(s); seen[n] = (seen[n] || 0) + 1; s.name = seen[n] > 1 ? `${n} ${seen[n]}` : n; }
+    if (state.match && state.loadId !== loadedId) load(state.url, state.loadId);
+    if (!state.match && loadedId !== -1) load("", -1);
+    let added = false;
+    for (const s of state.streams || []) if (s.language && !languages.has(s.language)) { languages.add(s.language); added = true; }
+    if (added) { store.set("languages", [...languages]); renderLanguageMenus(); }
+    const cur = state.streams?.[state.current];
+    if (cur && state.current !== lastCurrent) {
+      if (lastCurrent !== null && !userPicked) hud(`${chan(cur)}<div><b>${esc(cur.name)}</b><br><span>Switched automatically to keep you watching</span></div>`);
+      lastCurrent = state.current;
+      userPicked = false;
+    }
+    render();
+  } catch {}
+  ticking = false;
+}
+setInterval(tick, 1000);
+
+// ── Rendering ───────────────────────────────────────────────────────────────
+function render() {
+  const watching = !!state.match;
+  $("home").hidden = watching;
+  $("watch").hidden = !watching;
+  document.title = watching ? `${state.match.title} — Stream Ripper` : "Stream Ripper";
+  document.querySelectorAll(".match").forEach((b) => b.classList.toggle("active", b.dataset.key === state.match?.key));
+  applyUi();
+  if (!watching) return;
+  renderTitle(); renderNow(); renderStreams(); renderPlayer();
+}
+function renderTitle() {
+  const m = state.match;
+  setHTML($("title-row"), `${crests(m.title)}<div class="title-text"><h1>${esc(m.title)}</h1><p>${esc(m.league || "Football")}</p></div>`);
+}
+function renderNow() {
+  const streams = state.streams || [];
+  const cur = streams[state.current];
+  if (!cur) {
+    const alive = streams.filter((s) => s.status === "alive").length;
+    setHTML($("now"), `<div class="now-text"><b>${esc(state.message || "Finding the best stream…")}</b>
+      <div class="facts"><span class="fact">${streams.length ? `${alive} of ${streams.length} streams working so far` : "Gathering streams from every source"}</span></div></div>`);
+    return;
+  }
+  const facts = [
+    qBadge(cur),
+    langText(cur) && `<span class="fact">${esc(langText(cur))}</span>`,
+    `<span class="fact">${bars(cur)}${stabilityWord(cur)}</span>`,
+    `<span class="fact">Loads in ${fmtMs(cur.latency)}</span>`,
+    `<span class="fact">From ${esc(siteName(cur))}</span>`,
+    cur.viewers && `<span class="fact">${fmtViewers(cur.viewers)} watching</span>`,
+  ].filter(Boolean).join("");
+  setHTML($("now"), `${chan(cur)}<div class="now-text"><b>${esc(cur.name)}</b><div class="facts">${facts}</div></div>
+    <button class="pill-btn" id="next-btn" title="Next best stream  n">${ICON.next}Next stream</button>`);
+  $("next-btn").onclick = nextStream;
+}
+const RANK = { alive: 0, probing: 1, pending: 2, dead: 3 };
+const SORT = {
+  best: (s) => -(s.stability * (isHD(s) ? 2 : 1) * 1e6) / (s.latency + 1),
+  stable: (s) => -s.stability,
+  fast: (s) => s.latency,
+};
+function renderStreams() {
+  const streams = (state.streams || []).map((s, i) => ({ ...s, i }));
+  const alive = streams.filter((s) => s.status === "alive").length;
+  $("stream-count").textContent = streams.length ? `${alive} of ${streams.length} working` : "";
+  const keep = (s) => s.i === state.current || ((ui.showOffline || s.status !== "dead") && (!ui.hdOnly || isHD(s)) && (!ui.lang || s.language === ui.lang));
+  const shown = streams.filter(keep);
+  shown.sort((a, b) => (b.i === state.current) - (a.i === state.current) || RANK[a.status] - RANK[b.status] || SORT[ui.sort](a) - SORT[ui.sort](b));
+  const hiddenCount = streams.length - shown.length;
+  $("streams-foot").textContent = hiddenCount ? `${hiddenCount} ${hiddenCount === 1 ? "stream" : "streams"} hidden by filters` : "";
+  if (!streams.length) { setHTML($("streams"), '<div class="skeleton"></div>'.repeat(6)); return; }
+  if (!shown.length) { setHTML($("streams"), '<div class="empty-note">No streams match these filters.</div>'); return; }
+  setHTML($("streams"), shown.map((s) => {
+    const current = s.i === state.current;
+    const status = current ? "Playing" : s.status === "alive" ? fmtMs(s.latency) : s.status === "probing" ? '<span class="checking">Checking</span>' : s.status === "dead" ? "Offline" : "Queued";
+    return `<button class="stream${current ? " current" : ""}${s.status !== "alive" && !current ? " off" : ""}" data-i="${s.i}">
+      ${chan(s)}
+      <span class="stream-text"><b>${esc(s.name)}</b>
+        <span class="stream-facts">${qBadge(s)}${langText(s) ? `<span>${esc(langText(s))}</span>` : ""}<span>${esc(siteName(s))}</span></span></span>
+      <span class="stream-side">${current ? '<span class="eq"><i></i><i></i><i></i></span>' : bars(s)}<small>${status}</small></span>
+    </button>`;
+  }).join(""));
+}
+$("streams").addEventListener("click", (e) => {
+  const b = e.target.closest(".stream");
+  if (!b || b.classList.contains("off") || b.classList.contains("current")) return;
+  userPicked = true;
+  api("/api/play", { index: +b.dataset.i }).then(tick);
+  if (small()) { ui.right = false; applyUi(); }
+});
+$("reprobe").onclick = () => api("/api/reprobe", {}).then(tick);
+function nextStream() { if (!state.url) return; userPicked = true; api("/api/next", {}).then(tick); }
+
+function renderPlayer() {
+  $("play").innerHTML = video.paused ? ICON.play : ICON.pause;
+  $("mute").innerHTML = video.muted || video.volume === 0 ? ICON.muted : ICON.sound;
+  $("volume").value = video.muted ? 0 : video.volume;
+  const cur = state.streams?.[state.current];
+  $("ctl-name").textContent = cur ? cur.name : "";
+  let veil = "";
+  if (!state.url || !showing || buffering) {
+    const waiting = ["stopped", "no-streams", "dead"].includes(state.phase);
+    const msg = state.url && state.phase === "playing" ? (showing ? "Buffering" : "Starting the stream") : state.message || "Finding the best stream…";
+    veil = `${waiting ? "" : '<div class="spinner"></div>'}<p>${esc(msg)}</p>${waiting ? "<small>Streams are checked again automatically.</small>" : ""}`;
+  }
+  setHTML($("veil-inner"), veil);
+  $("veil").classList.toggle("off", !veil);
+  if (!state.url || !showing) $("controls").classList.add("off");
+}
+
+// ── Keyboard ────────────────────────────────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") {
+    if (e.key === "Escape") {
+      if (e.target === $("search")) { e.target.value = ""; query = ""; renderMatches(); }
+      e.target.blur();
+    }
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key;
+  if (k === "/") { e.preventDefault(); if (!ui.left) toggle("left"); $("search").focus(); }
+  else if (k === " " || k === "k") { e.preventDefault(); togglePlay(); }
+  else if (k === "f") toggleFullscreen();
+  else if (k === "m") $("mute").click();
+  else if (k === "n") nextStream();
+  else if (k === "t" && state.match) $("theater").click();
+  else if (k === "[") toggle("left");
+  else if (k === "]" && state.match) toggle("right");
+  else if (k === ",") { e.stopPropagation(); $("sheet").classList.toggle("open"); }
+  else if (k === "Escape") $("sheet").classList.remove("open");
+  else return;
+  wake();
+});
+
+api("/api/prefs", prefs).catch(() => {});
+renderLanguageMenus();
+render();
+loadMatches();
+setInterval(() => loadMatches(), 90_000);
+tick();
+</script>
+</body>
+</html>

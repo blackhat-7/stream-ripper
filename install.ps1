@@ -104,7 +104,11 @@ Step "Creating launcher"
 New-Item -ItemType Directory -Force -Path $BIN_DIR | Out-Null
 @"
 @echo off
-uv run --project "$INSTALL_DIR" python -m _streamer.tui %*
+if "%~1"=="--web" (
+  uv run --project "$INSTALL_DIR" python -m _streamer.web
+) else (
+  uv run --project "$INSTALL_DIR" python -m _streamer.tui %*
+)
 "@ | Set-Content $BIN -Encoding ASCII
 Info "Launcher created at $BIN"
 

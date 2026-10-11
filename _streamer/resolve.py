@@ -100,20 +100,20 @@ def _steps(url: str, no_browser: bool) -> list[tuple[str, Callable[[], list[tupl
     return steps
 
 
-def _first_playable(found: list[tuple[str, str]], embed_url: str) -> tuple[str, str, int] | None:
-    """First (url, referer, latency ms) that passes a stream check. Tries the page the URL
+def _first_playable(found: list[tuple[str, str]], embed_url: str) -> tuple[str, str, int, int] | None:
+    """First (url, referer, latency ms, height) that passes a stream check. Tries the page the URL
     was found on, the embed page and the stream's own origin as Referer."""
     for url, page in found[:_MAX_TRY]:
         for ref in dict.fromkeys(r for r in (page, embed_url, origin(url)) if r):
             try:
-                return url, ref, check_stream(url, ref)
+                return url, ref, *check_stream(url, ref)
             except Exception as exc:
                 log.debug(f"check {url[:60]} (ref {ref[:40]}): {exc}")
     return None
 
 
-def resolve(c: StreamCandidate, no_browser: bool = False) -> tuple[str, str, int] | None:
-    """Return a validated (m3u8 URL, referer, latency ms) for a candidate, or None.
+def resolve(c: StreamCandidate, no_browser: bool = False) -> tuple[str, str, int, int] | None:
+    """Return a validated (m3u8 URL, referer, latency ms, height) for a candidate, or None.
 
     A disk-cached URL from an earlier run is tried first; new results are cached.
     """

@@ -13,6 +13,7 @@ def mark_failed(c: StreamCandidate) -> None:
     with c._lock:
         c.alive = False
         c.failures += 1
+        c.checks += 1
         if c.failures >= FAIL_LIMIT:
             c.resolved, c.referer = "", ""
 
@@ -33,7 +34,7 @@ def probe(c: StreamCandidate, no_browser: bool = False) -> bool:
 def _probe(c: StreamCandidate, no_browser: bool) -> bool:
     if c.resolved:
         try:
-            ms = check_stream(c.resolved, c.play_referer)
+            ms, height = check_stream(c.resolved, c.play_referer)
         except Exception as exc:
             mark_failed(c)
             log.warning(f"  ✗ [{c.label}]  {exc}")
@@ -52,12 +53,16 @@ def _probe(c: StreamCandidate, no_browser: bool) -> bool:
                 else:
                     c.alive = False
                     c.failures += 1
+                    c.checks += 1
             return False
-        url, referer, ms = hit
+        url, referer, ms, height = hit
         with c._lock:
             c.resolved, c.referer = url, referer
 
     with c._lock:
         c.alive, c.latency_ms, c.failures, c.resolve_attempts = True, ms, 0, 0
+        c.height = height or c.height
+        c.checks += 1
+        c.passes += 1
     log.info(f"  ✓ [{c.label}]  {ms}ms")
     return True

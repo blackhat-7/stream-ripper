@@ -4,7 +4,7 @@ import os
 import socket
 import subprocess
 import time
-from typing import Any
+from typing import Any, Protocol
 
 from _streamer.proxy import HLSProxy
 from _streamer.settings import MPV_SOCKET
@@ -19,6 +19,15 @@ MPV_ARGS = [
     "--demuxer-lavf-o=seg_max_retry=3,reconnect=1,reconnect_streamed=1,"
     "reconnect_on_network_error=1,reconnect_delay_max=2",
 ]
+
+
+class Player(Protocol):
+    """What Watcher drives: mpv here, or the web page (web.py's BrowserPlayer)."""
+    def play(self, url: str, referrer: str = "", title: str = "Live Stream") -> None: ...
+    def stop(self) -> None: ...
+    def exit_code(self) -> int | None: ...
+    def get(self, prop: str) -> Any: ...
+    def osd(self, text: str, ms: int = 4000) -> None: ...
 
 
 class MpvController:
