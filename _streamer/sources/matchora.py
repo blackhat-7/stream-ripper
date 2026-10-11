@@ -1,13 +1,14 @@
 """matchora.to — documented free JSON API with its own restream CDN."""
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.net import get_first
+from _streamer.sources import fmhy
 
 NAME = "matchora"
 _MIRRORS = ["https://matchora.to", "https://matchora.pro"]
 
 
 def _api(path: str):
-    return get_first([m + path for m in _MIRRORS], json=True).json()
+    return get_first([m + path for m in fmhy.mirrors("matchora", _MIRRORS)], json=True).json()
 
 
 def fetch_matches() -> list[LiveMatch]:

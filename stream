@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# stream — one-command launcher.
+#   ./stream              TUI picker, all live matches
+#   ./stream liverpool    TUI filtered by name
+#   ./stream --list       list matches and exit
+cd "$(dirname "$0")"
+if [[ " $* " == *" --list "* ]]; then
+  exec uv run python -m _streamer.cli "$@"
+fi
+exec uv run python -m _streamer.tui "$@"

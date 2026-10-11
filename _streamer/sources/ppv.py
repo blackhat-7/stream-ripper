@@ -3,17 +3,18 @@ import time
 
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.net import get_first
+from _streamer.sources import fmhy
 
 NAME = "ppv"
-_MIRRORS = [f"https://api.{d}/api/streams" for d in
-            ("ppv.st", "ppv.tj", "ppvs.pk", "ppv.rw", "ppv.ms", "ppv.bi", "ppv.ug")]
+_MIRRORS = [f"https://{d}" for d in ("ppv.st", "ppv.tj", "ppvs.pk", "ppv.rw", "ppv.ms", "ppv.bi", "ppv.ug")]
 _PREROLL = 30 * 60  # streams usually open ~30 min before kickoff
 
 
 def fetch_matches() -> list[LiveMatch]:
     now = time.time()
     out = []
-    for cat in get_first(_MIRRORS, json=True).json().get("streams", []):
+    for cat in get_first([m.replace("://", "://api.", 1) + "/api/streams" for m in fmhy.mirrors("ppv.st", _MIRRORS)],
+                         json=True).json().get("streams", []):
         if cat.get("category") != "Football":
             continue
         for s in cat.get("streams", []):

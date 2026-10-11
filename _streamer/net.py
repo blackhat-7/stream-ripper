@@ -1,25 +1,43 @@
+"""Single HTTP client for the whole app (browser-like TLS via curl_cffi).
+
+Sources, resolvers, probing and the proxy all go through here, so a stream
+that scrapes fine can't 403 on the health check or in mpv.
+"""
+import re
+import threading
 import time
 import urllib.parse as urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import requests
+import m3u8
 from curl_cffi import requests as cf
-from urllib3.util.retry import Retry
 
-from _streamer.settings import REQ_TIMEOUT
+from _streamer.settings import HEADERS, REQ_TIMEOUT
+
+# Media segments / static assets — never the stream playlist itself.
+SEGMENT_RE = re.compile(
+    r"\d+\.ts|seg-\d|\.aac|\.mp4|\.(js|css|png|jpe?g|gif|svg|ico|woff2?)(\?|$)", re.I)
+
+# curl_cffi sessions are not thread-safe — one per thread (keeps connection reuse).
+_local = threading.local()
+
+
+def _session() -> cf.Session:
+    if not hasattr(_local, "session"):
+        _local.session = cf.Session(impersonate="chrome")
+    return _local.session
 
 
 def http_get(url: str, timeout: float = REQ_TIMEOUT, retries: int = 2, **kwargs):
     """GET with a browser-like TLS fingerprint (bypasses Cloudflare).
 
     Retries once by default: some ISPs randomly reset connections to these
-    hosts, and a reset fails fast, so a quick retry is cheap. A fresh request
-    per call keeps this thread-safe (a shared curl_cffi Session is not).
+    hosts, and a reset fails fast, so a quick retry is cheap.
     """
     last: Exception = RuntimeError("no attempts")
     for i in range(retries):
         try:
-            return cf.get(url, impersonate="chrome", timeout=timeout, **kwargs)
+            return _session().get(url, timeout=timeout, **kwargs)
         except Exception as exc:
             last = exc
             if i < retries - 1:
@@ -52,14 +70,38 @@ def get_first(urls: list[str], timeout: float = 6, json: bool = False, **kwargs)
     raise RuntimeError("; ".join(errors))
 
 
-def retrying_session() -> requests.Session:
-    """requests Session that retries GETs on connection resets (flaky ISPs) and 5xx."""
-    s = requests.Session()
-    retry = Retry(total=3, connect=3, read=2, status=2, backoff_factor=0.2,
-                  status_forcelist=(502, 503, 504), raise_on_status=False)
-    s.mount("http://", requests.adapters.HTTPAdapter(max_retries=retry))
-    s.mount("https://", requests.adapters.HTTPAdapter(max_retries=retry))
-    return s
+def headers_for(referer: str) -> dict:
+    """Request headers carrying the embed page's Referer/Origin."""
+    return {**HEADERS, "Referer": referer, "Origin": origin(referer)}
+
+
+def check_stream(url: str, referer: str) -> int:
+    """Verify an HLS URL end-to-end (manifest → best variant → last segment).
+
+    Returns latency in ms; raises ValueError (or a transport error) saying what failed.
+    """
+    h = headers_for(referer)
+    t0 = time.monotonic()
+    r = http_get(url, headers=h)
+    if r.status_code != 200:
+        raise ValueError(f"manifest HTTP {r.status_code}")
+    pl = m3u8.loads(r.text, uri=url)
+    if pl.is_variant and pl.playlists:
+        best = max(pl.playlists, key=lambda p: p.stream_info.bandwidth or 0).absolute_uri
+        r = http_get(best, headers=h)
+        if r.status_code != 200:
+            raise ValueError(f"variant HTTP {r.status_code}")
+        pl = m3u8.loads(r.text, uri=best)
+    if not pl.segments:
+        raise ValueError("no segments")
+    sr = http_get(pl.segments[-1].absolute_uri, headers=h, stream=True)
+    try:
+        if sr.status_code != 200:
+            raise ValueError(f"segment HTTP {sr.status_code}")
+        next(sr.iter_content(8192), None)
+    finally:
+        sr.close()
+    return int((time.monotonic() - t0) * 1000)
 
 
 def origin(url: str) -> str:

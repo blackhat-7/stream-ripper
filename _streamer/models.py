@@ -8,6 +8,7 @@ class StreamCandidate:
     embed_url: str
     site: str = ""
     resolved: str = ""
+    referer: str = ""          # referer the resolved URL validated with; defaults to embed_url
     alive: bool = False
     probing: bool = False
     latency_ms: int = 9999
@@ -15,6 +16,10 @@ class StreamCandidate:
     resolve_attempts: int = 0
     viewers: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    @property
+    def play_referer(self) -> str:
+        return self.referer or self.embed_url
 
     @property
     def status(self) -> str:

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.net import get_first
+from _streamer.sources import fmhy
 
 NAME = "timstreams"
 _MIRRORS = ["https://timst.cfd"]
@@ -16,7 +17,7 @@ _SOCCER = 1                          # genre id, see /api/settings
 def fetch_matches() -> list[LiveMatch]:
     now = time.time()
     out = []
-    for e in get_first([m + "/api/live-upcoming" for m in _MIRRORS], json=True).json().get("events", []):
+    for e in get_first([m + "/api/live-upcoming" for m in fmhy.mirrors("timstreams", _MIRRORS)], json=True).json()["events"] or []:
         start = datetime.fromisoformat(e["time"]).replace(tzinfo=_TZ).timestamp()
         if e.get("genre") == _SOCCER and e.get("streams") and _WINDOW[0] <= now - start <= _WINDOW[1]:
             out.append(LiveMatch(id=e["url"], title=e["name"], source_site=NAME, sport="football", raw=e))

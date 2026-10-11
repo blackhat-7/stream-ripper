@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.net import get_first
+from _streamer.sources import fmhy
 
 NAME = "streamed"
 _MIRRORS = ["https://streamed.pk", "https://streamed.st", "https://streamed.su"]
@@ -11,7 +12,7 @@ _MAX_AGE_MS = 3 * 3600 * 1000  # the "live" list keeps finished matches for hour
 
 
 def _api(path: str):
-    return get_first([m + path for m in _MIRRORS], json=True).json()
+    return get_first([m + path for m in fmhy.mirrors("streamed", _MIRRORS)], json=True).json()
 
 
 def fetch_matches() -> list[LiveMatch]:

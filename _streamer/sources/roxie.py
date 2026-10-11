@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.net import get_first
+from _streamer.sources import fmhy
 
 NAME = "roxie"
 _MIRRORS = ["https://roxiestreams.su", "https://roxiestreams.biz"]
@@ -18,7 +19,7 @@ _BUTTON = re.compile(r"""showPlayer\('clappr',\s*getRandomStream\('([^']+)'(?:,\
 
 
 def _get(path: str) -> str:
-    return get_first([m + path for m in _MIRRORS]).text
+    return get_first([m + path for m in fmhy.mirrors("roxiestreams", _MIRRORS)]).text
 
 
 def fetch_matches() -> list[LiveMatch]:

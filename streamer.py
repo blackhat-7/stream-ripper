@@ -2,7 +2,6 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "requests>=2.31.0",
 #   "m3u8>=3.0.0",
 #   "beautifulsoup4>=4.12.0",
 #   "lxml>=5.0.0",

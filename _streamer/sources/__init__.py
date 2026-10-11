@@ -10,12 +10,12 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, wait
 
 from _streamer.models import LiveMatch, StreamCandidate
-from _streamer.sources import cdnlive, futbolx, matchora, ppv, roxie, streamed, streamfree, timstreams
+from _streamer.sources import cdnlive, futbolx, matchora, ppv, roxie, streamed, streamfree, timstreams, totalsportek
 
 log = logging.getLogger(__name__)
 
 # Priority order: earlier sites become the primary listing of a merged match.
-_SITES = [streamed, ppv, matchora, cdnlive, timstreams, streamfree, roxie, futbolx]
+_SITES = [streamed, ppv, matchora, cdnlive, timstreams, streamfree, roxie, futbolx, totalsportek]
 _BY_NAME = {s.NAME: s for s in _SITES}
 _DISCOVER_TIMEOUT = 10
 _CANDIDATES_TIMEOUT = 15

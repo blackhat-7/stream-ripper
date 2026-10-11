@@ -2,17 +2,18 @@ import base64
 import json
 import logging
 import re
-import threading
 import time
 import urllib.parse as urlparse
+from typing import Callable
 
+from _streamer import browser, cache
 from _streamer.models import StreamCandidate
-from _streamer.net import http_get, origin
-from _streamer.settings import HEADERS
+from _streamer.net import check_stream, http_get, origin
 
 log = logging.getLogger(__name__)
-_browsers = threading.Semaphore(3)  # each resolve launches its own headless Chrome
 _M3U8 = re.compile(r"""https?://[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*""")
+_IFRAME = re.compile(r"""<iframe[^>]+src=["']([^"']+)["']""", re.I)
+_MAX_TRY = 5  # validate at most this many found URLs per step
 
 
 def _page(url: str) -> str:
@@ -49,7 +50,7 @@ def _cdnlive(url: str) -> str | None:
 
 def _matchora(url: str) -> str | None:
     """matchora.to: its API restreams a channel on demand; poll until it's warm."""
-    ch, event = re.search(r"/embed/channel/(\d+)\?fx=(\d+)", url).groups()
+    ch, event = re.search(r"/embed/channel/(\d+)\?fx=(\w+)", url).groups()
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         r = http_get(f"{origin(url)}/api/play/{ch}?fx={event}", timeout=6).json()
@@ -66,68 +67,70 @@ _HTTP_RESOLVERS = {"strmfree.st": _streamfree, "exmxbxe.cfd": _exmxbxe,
                    "cdnlivetv.tv": _cdnlive, "matchora.to": _matchora}
 
 
-def _html(url: str) -> str | None:
-    """Embed pages that put the playlist URL straight in their HTML."""
-    hit = _M3U8.search(_page(url))
-    return hit.group(0) if hit else None
-
-
-def _browser(url: str, wait_s: float = 15) -> str | None:
-    """Load the embed in headless Chrome and capture the first .m3u8 request it makes."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return None
-
-    found: list[str] = []
-    with _browsers:
+def _scan(url: str, depth: int = 2) -> list[tuple[str, str]]:
+    """m3u8 URLs in a page's HTML, else in its iframes, each paired with the page it was
+    found on (the Referer the CDN usually expects)."""
+    html = _page(url)
+    if hits := _M3U8.findall(html):
+        return [(u, url) for u in dict.fromkeys(hits)]
+    for src in _IFRAME.findall(html)[:5] if depth else []:
+        src = urlparse.urljoin(url, src)
         try:
-            with sync_playwright() as p:
-                try:
-                    browser = p.chromium.launch(
-                        headless=True, channel="chrome",
-                        args=["--autoplay-policy=no-user-gesture-required"])
-                except Exception:
-                    log.warning("Chrome not found — install Google Chrome")
-                    return None
-                ctx = browser.new_context(user_agent=HEADERS["User-Agent"])
-                ctx.on("request", lambda r: found.append(r.url) if ".m3u8" in r.url else None)
-                page = ctx.new_page()
-                ctx.on("page", lambda pg: pg.close())  # kill ad pop-ups
-                try:
-                    page.goto(url, timeout=20_000, wait_until="domcontentloaded")
-                except Exception:
-                    pass
-                deadline = time.monotonic() + wait_s
-                while not found and time.monotonic() < deadline:
-                    page.wait_for_timeout(300)
-                browser.close()
+            if src.startswith("http") and (found := _scan(src, depth - 1)):
+                return found
         except Exception as exc:
-            log.debug(f"playwright: {exc}")
-    return found[0] if found else None
+            log.debug(f"iframe {src[:60]}: {exc}")
+    return []
 
 
-def resolve(c: StreamCandidate, no_browser: bool = False) -> str | None:
-    """Return a playable m3u8 URL for a candidate, or None.
+def _steps(url: str, no_browser: bool) -> list[tuple[str, Callable[[], list[tuple[str, str]]]]]:
+    """(name, finder) pairs to try in order; a finder returns (m3u8 URL, found-on page) pairs.
 
     Known hosts are resolved over plain HTTP; anything else falls back to a
-    scan of the page HTML and then headless Chrome (skipped if no_browser).
+    scan of the page HTML and then a browser (skipped if no_browser).
+    """
+    if ".m3u8" in url:
+        return [("direct", lambda: [(url, url)])]
+    fn = _HTTP_RESOLVERS.get(urlparse.urlparse(url).netloc.removeprefix("www."))
+    if fn:
+        return [(fn.__name__.strip("_"), lambda: [(m, url)] if (m := fn(url)) else [])]
+    steps = [("html", lambda: _scan(url))]
+    if not no_browser:
+        steps.append(("browser", lambda: [(m, url) for m in browser.sniff(url)]))
+    return steps
+
+
+def _first_playable(found: list[tuple[str, str]], embed_url: str) -> tuple[str, str, int] | None:
+    """First (url, referer, latency ms) that passes a stream check. Tries the page the URL
+    was found on, the embed page and the stream's own origin as Referer."""
+    for url, page in found[:_MAX_TRY]:
+        for ref in dict.fromkeys(r for r in (page, embed_url, origin(url)) if r):
+            try:
+                return url, ref, check_stream(url, ref)
+            except Exception as exc:
+                log.debug(f"check {url[:60]} (ref {ref[:40]}): {exc}")
+    return None
+
+
+def resolve(c: StreamCandidate, no_browser: bool = False) -> tuple[str, str, int] | None:
+    """Return a validated (m3u8 URL, referer, latency ms) for a candidate, or None.
+
+    A disk-cached URL from an earlier run is tried first; new results are cached.
     """
     url = c.embed_url
-    if ".m3u8" in url:
-        return url
-    host = urlparse.urlparse(url).netloc.removeprefix("www.")
-    if host in _HTTP_RESOLVERS:
-        fns = [_HTTP_RESOLVERS[host]]
-    else:
-        fns = [_html] + ([] if no_browser else [_browser])
-    for fn in fns:
+    if (hit := cache.get(url)) and (ok := _first_playable([hit], url)):
+        log.info(f"  [{c.label}] resolved via cache")
+        return ok
+    for name, find in _steps(url, no_browser):
         try:
-            result = fn(url)
+            found = find()
         except Exception as exc:
-            log.debug(f"  [{c.label}] {fn.__name__}: {exc}")
+            log.debug(f"  [{c.label}] {name}: {exc}")
             continue
-        if result:
-            log.info(f"  [{c.label}] resolved via {fn.__name__.strip('_')}")
-            return result
+        if ok := _first_playable(found, url):
+            cache.put(url, ok[0], ok[1])
+            log.info(f"  [{c.label}] resolved via {name}")
+            return ok
+        if found:
+            log.debug(f"  [{c.label}] {name}: found URL(s) failed validation")
     return None

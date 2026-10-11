@@ -5,8 +5,7 @@ import socket
 import threading
 import urllib.parse as urlparse
 
-from _streamer.net import origin, retrying_session
-from _streamer.settings import HEADERS, REQ_TIMEOUT
+from _streamer.net import headers_for, http_get
 
 log = logging.getLogger(__name__)
 
@@ -19,9 +18,8 @@ class HLSProxy:
     every stream and mpv can switch streams without a restart."""
 
     def __init__(self):
-        self.port     = self._free_port()
-        self._session = retrying_session()
-        self._server  = self._start()
+        self.port    = self._free_port()
+        self._server = self._start()
 
     @staticmethod
     def _free_port() -> int:
@@ -42,11 +40,10 @@ class HLSProxy:
                 if not real_url:
                     self.send_error(400, "Missing ?u=")
                     return
-                h = {**HEADERS, "Referer": referrer, "Origin": origin(referrer)}
                 try:
                     is_m3u8 = real_url.split("?")[0].endswith(".m3u8")
-                    with proxy._session.get(real_url, headers=h, timeout=REQ_TIMEOUT,
-                                            stream=not is_m3u8) as resp:
+                    resp = http_get(real_url, headers=headers_for(referrer), stream=not is_m3u8)
+                    try:
                         ct = resp.headers.get("content-type", "application/octet-stream")
                         if "mpegurl" in ct or is_m3u8:
                             body = proxy._rewrite(resp.text, real_url, referrer).encode()
@@ -63,6 +60,8 @@ class HLSProxy:
                             self.end_headers()
                             for chunk in resp.iter_content(65536):
                                 self.wfile.write(chunk)
+                    finally:
+                        resp.close()
                 except OSError:
                     pass  # mpv hung up (e.g. switched streams)
                 except Exception as exc:

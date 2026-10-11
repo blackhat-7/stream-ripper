@@ -3,6 +3,7 @@ import re
 
 from _streamer.models import LiveMatch, StreamCandidate
 from _streamer.net import get_first
+from _streamer.sources import fmhy
 
 NAME = "streamfree"
 _MIRRORS = ["https://streamfree.top", "https://strmfree.st"]
@@ -10,7 +11,7 @@ _MIRRORS = ["https://streamfree.top", "https://strmfree.st"]
 
 def fetch_matches() -> list[LiveMatch]:
     # "soccer" is football here ("football" means NFL); sources fill in once live.
-    data = get_first([m + "/api/v1/streams?category=soccer" for m in _MIRRORS], json=True).json()
+    data = get_first([m + "/api/v1/streams?category=soccer" for m in fmhy.mirrors("streamfree", _MIRRORS)], json=True).json()
     return [LiveMatch(id=s["stream_key"], title=s["name"], source_site=NAME, sport="football",
                       raw=s, league=s.get("league", ""))
             for s in data.get("streams", []) if s.get("sources")]

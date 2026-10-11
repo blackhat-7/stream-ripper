@@ -179,7 +179,7 @@ class Watcher:
             return
         self._set(phase="switching", message=f"Switching to {c.label}…")
         try:
-            self.mpv.play(url, referrer=c.embed_url, title=self.match.title)
+            self.mpv.play(url, referrer=c.play_referer, title=self.match.title)
         except Exception as exc:
             log.error(f"mpv failed: {exc}")
             mark_failed(c)
