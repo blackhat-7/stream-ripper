@@ -50,5 +50,9 @@ def get(embed_url: str) -> tuple[str, str] | None:
 
 def put(embed_url: str, resolved_url: str, referer: str = "") -> None:
     with _lock:
-        _load()[embed_url] = {"u": resolved_url, "ref": referer, "t": time.time()}
+        data = _load()
+        now = time.time()
+        for url in [u for u, e in data.items() if now - e.get("t", 0) >= CACHE_TTL]:
+            del data[url]
+        data[embed_url] = {"u": resolved_url, "ref": referer, "t": now}
         _save()
