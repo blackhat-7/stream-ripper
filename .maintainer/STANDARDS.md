@@ -15,6 +15,7 @@ You own this code. Every change must leave it at least as clean as you found it.
 - **Test changed behavior.** Test behavior, not implementation. No test suite? Verify by hand and say how.
 - **Comments say why**, not what.
 - **One concern per change.** Keep PRs focused.
+- **PRs start as drafts.** Mark one ready (`gh pr ready`) only when it is done. Every push to a ready PR triggers a review.
 - **Change every side.** When an interface between components changes (API, schema, FFI, config), update every user of it in the same change.
 - **Managed files are off limits.** Do not edit files marked `Managed by blackhat-7/maintainer`.
 - **Unsure? Ask.** Do not guess on design decisions.

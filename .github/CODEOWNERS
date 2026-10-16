@@ -1,5 +1,6 @@
 # maintainer:start
 /.github/ @blackhat-7
 /.claude/ @blackhat-7
+/.agents/ @blackhat-7
 /.maintainer/ @blackhat-7
 # maintainer:end
