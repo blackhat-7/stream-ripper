@@ -39,7 +39,12 @@ Ignore nits.
 
 ## Output
 
-- `summary`: verdict first, then the blocking issues as a short list. Under 150 words.
-  For close, one or two sentences on why.
-- `comments`: one per concrete issue, on a line added in the diff (new-file line number).
-  State the problem and the fix in one or two sentences. Empty when approving.
+Write so a busy reader gets it in one pass. Plain words, short sentences, no jargon.
+
+- `summary`: the verdict in one line. Then up to 5 bullets for issues that have no inline
+  comment, one short sentence each. Don't repeat the inline comments. For close, one
+  sentence on why.
+- `comments`: one per issue, on a line added in the diff (new-file line number). Say what
+  is wrong and how to fix it, in under 25 words. Empty when approving.
+
+Example comment: `Bare except hides all errors. Remove the try, or catch the specific error.`
