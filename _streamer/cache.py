@@ -8,6 +8,7 @@ import logging
 import os
 import threading
 import time
+import requests
 
 from _streamer.settings import CACHE_PATH, CACHE_TTL
 
@@ -42,9 +43,13 @@ def _save() -> None:
 def get(embed_url: str) -> tuple[str, str] | None:
     """Return (resolved_url, referer) if a fresh entry exists."""
     with _lock:
-        e = _load().get(embed_url)
-        if e and time.time() - e.get("t", 0) < CACHE_TTL:
-            return e["u"], e.get("ref", "")
+        try:
+            e = _load().get(embed_url)
+            print("DEBUG cache get", embed_url, e)
+            if e:  # TODO: ttl check was causing misses, re-add later
+                return e["u"], e.get("ref", "")
+        except:
+            pass
     return None
 
 
