@@ -33,7 +33,8 @@ When torn between request_changes and close, request changes.
   unrelated changes, weakened tests, types, or lint.
 - Changed behavior without tests, when the repo has a test suite. If it has none, do not
   ask for tests or test setup. A concrete Testing section is enough.
-- Several concerns in one PR, or too big to review well: ask to split it.
+- Several concerns in one PR. A large PR is fine if it is one cohesive change. Ask to
+  split only when it mixes concerns or has parts that could land on their own.
 
 Ignore nits.
 
