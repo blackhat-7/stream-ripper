@@ -1,0 +1,24 @@
+# Managed by blackhat-7/maintainer. Do not edit. Rerun the installer to update.
+name: maintainer
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    if: github.event_name == 'pull_request_target'
+    uses: blackhat-7/maintainer/.github/workflows/review.yml@v0.1.0
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  stale:
+    if: github.event_name == 'schedule'
+    uses: blackhat-7/maintainer/.github/workflows/stale.yml@v0.1.0
