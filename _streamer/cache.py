@@ -39,11 +39,15 @@ def _save() -> None:
         log.debug(f"cache save: {exc}")
 
 
+def _is_fresh(entry: dict, now: float) -> bool:
+    return now - entry.get("t", 0) < CACHE_TTL
+
+
 def get(embed_url: str) -> tuple[str, str] | None:
     """Return (resolved_url, referer) if a fresh entry exists."""
     with _lock:
         e = _load().get(embed_url)
-        if e and time.time() - e.get("t", 0) < CACHE_TTL:
+        if e and _is_fresh(e, time.time()):
             return e["u"], e.get("ref", "")
     return None
 
@@ -52,7 +56,7 @@ def put(embed_url: str, resolved_url: str, referer: str = "") -> None:
     with _lock:
         data = _load()
         now = time.time()
-        for url in [u for u, e in data.items() if now - e.get("t", 0) >= CACHE_TTL]:
+        for url in [u for u, e in data.items() if not _is_fresh(e, now)]:
             del data[url]
         data[embed_url] = {"u": resolved_url, "ref": referer, "t": now}
         _save()
