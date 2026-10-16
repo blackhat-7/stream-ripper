@@ -12,7 +12,7 @@ You own this code. Every change must leave it at least as clean as you found it.
 - **Never weaken checks.** Do not loosen tests, types, lint, or security to get green.
 - **No new dependency** unless the standard library and existing dependencies can't do the job.
 - **Secure by default.** Validate input at boundaries. No secrets in code or logs. Least privilege.
-- **Test changed behavior.** Test behavior, not implementation.
+- **Test changed behavior.** Test behavior, not implementation. No test suite? Verify by hand and say how.
 - **Comments say why**, not what.
 - **One concern per change.** Keep PRs small.
 - **Managed files are off limits.** Do not edit files marked `Managed by blackhat-7/maintainer`.

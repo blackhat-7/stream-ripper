@@ -31,7 +31,8 @@ When torn between request_changes and close, request changes.
   suspicious dependency, build, or CI changes.
 - Any Standards violation: hacks, dead code, speculative abstraction, needless dependencies,
   unrelated changes, weakened tests, types, or lint.
-- Changed behavior without tests.
+- Changed behavior without tests, if the repo has a test suite. Without one, the Testing
+  section must show how the change was verified.
 - Several concerns in one PR, or too big to review well: ask to split it.
 
 Ignore nits.
